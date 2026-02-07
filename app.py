@@ -6,7 +6,7 @@ from PIL import Image
 st.set_page_config(page_title="Recovery Agent", page_icon="🏥")
 st.title("🏥 Post-Op Recovery Assistant")
 
-# sidebar for API key to make it easy to test
+# Sidebar for API key
 with st.sidebar:
     st.header("Settings")
     api_key = st.text_input("Enter Google Gemini API Key", type="password")
@@ -34,23 +34,21 @@ if img_file and st.button("Analyze Recovery"):
         st.error("Please enter an API key in the sidebar first!")
     else:
         with st.spinner("Analyzing with Gemini AI..."):
-            # 4. The AI Brain
-            model = genai.GenerativeModel('gemini-1.5-flash')
-
+            
             # Prompt combines History + Vitals + Visuals
             prompt = f"""
             Act as a medical triage system for post-op recovery.
-
+            
             PATIENT CONTEXT:
             - History: {history}
             - Reported Pain: {pain}/10
             - Mobility: {mobility}
-
+            
             TASK:
             1. Analyze the image for visual signs of infection (redness, swelling, pus) or pain expressions.
             2. Combine visual data with the reported pain score.
             3. Determine a Triage Status: GREEN (Safe), YELLOW (Caution), or RED (Danger).
-
+            
             OUTPUT FORMAT:
             - Status: [GREEN/YELLOW/RED]
             - Assessment: [1 sentence explanation]
@@ -61,7 +59,16 @@ if img_file and st.button("Analyze Recovery"):
             image = Image.open(img_file)
 
             try:
-                response = model.generate_content([prompt, image])
+                # 4. The AI Brain (With Auto-Fallback)
+                try:
+                    # Try the fast, new model first
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content([prompt, image])
+                except Exception:
+                    # If that fails (404 error), use the "Old Reliable" model
+                    st.warning("⚠️ Using legacy model due to server version...")
+                    model = genai.GenerativeModel('gemini-pro-vision')
+                    response = model.generate_content([prompt, image])
 
                 # 5. The Output
                 st.write("---")
