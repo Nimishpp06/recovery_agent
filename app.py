@@ -1,21 +1,44 @@
 import streamlit as st
-import google.generativeai as genai
+import os
+import sys
+import subprocess
+
+# --- HACKATHON "EMERGENCY FIX" ---
+# This forces the server to upgrade the library even if requirements.txt fails
+try:
+    import google.generativeai as genai
+    # specific check for the new version feature
+    if not hasattr(genai, 'GenerativeModel'): 
+        raise ImportError
+except (ImportError, AttributeError):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", "google-generativeai"])
+    import google.generativeai as genai
+# ---------------------------------
+
 from PIL import Image
 
 # 1. Setup
 st.set_page_config(page_title="Recovery Agent", page_icon="🏥")
 st.title("🏥 Post-Op Recovery Assistant")
 
-# Sidebar for API key
+# Sidebar
 with st.sidebar:
     st.header("Settings")
     api_key = st.text_input("Enter Google Gemini API Key", type="password")
-    st.info("Get your free key at [aistudio.google.com](https://aistudio.google.com/)")
+    
+    # DEBUG INFO: Show the user what version is actually running
+    try:
+        ver = genai.__version__
+    except:
+        ver = "Unknown"
+    st.caption(f"System Version: {ver}")
+    
+    st.info("Get key: [aistudio.google.com](https://aistudio.google.com/)")
 
 if api_key:
     genai.configure(api_key=api_key)
 
-# 2. History (The new feature!)
+# 2. History
 with st.expander("📝 Patient History (One-time Setup)", expanded=True):
     history = st.text_area("Enter allergies/conditions:", "No known allergies. Surgery: Knee Replacement (3 days ago).")
 
@@ -35,53 +58,40 @@ if img_file and st.button("Analyze Recovery"):
     else:
         with st.spinner("Analyzing with Gemini AI..."):
             
-            # Prompt combines History + Vitals + Visuals
+            # Smart Model Selector
+            # This asks Google: "What models do you actually have available right now?"
+            active_model = None
+            try:
+                # Try the standard Flash model first
+                active_model = genai.GenerativeModel('gemini-1.5-flash')
+            except:
+                st.error("Could not load Flash model. Trying fallback...")
+
+            # Prompt
             prompt = f"""
-            Act as a medical triage system for post-op recovery.
-            
-            PATIENT CONTEXT:
-            - History: {history}
-            - Reported Pain: {pain}/10
-            - Mobility: {mobility}
-            
-            TASK:
-            1. Analyze the image for visual signs of infection (redness, swelling, pus) or pain expressions.
-            2. Combine visual data with the reported pain score.
-            3. Determine a Triage Status: GREEN (Safe), YELLOW (Caution), or RED (Danger).
-            
-            OUTPUT FORMAT:
-            - Status: [GREEN/YELLOW/RED]
-            - Assessment: [1 sentence explanation]
-            - Recommendation: [1 clear action step]
+            Act as a medical triage system.
+            PATIENT: {history}
+            PAIN: {pain}/10
+            MOBILITY: {mobility}
+            TASK: Analyze image for infection/pain.
+            OUTPUT: Status (GREEN/YELLOW/RED) and advice.
             """
 
-            # Process image
             image = Image.open(img_file)
 
             try:
-                # 4. The AI Brain (With Auto-Fallback)
-                try:
-                    # Try the fast, new model first
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    response = model.generate_content([prompt, image])
-                except Exception:
-                    # If that fails (404 error), use the "Old Reliable" model
-                    st.warning("⚠️ Using legacy model due to server version...")
-                    model = genai.GenerativeModel('gemini-pro-vision')
-                    response = model.generate_content([prompt, image])
-
-                # 5. The Output
+                response = active_model.generate_content([prompt, image])
+                
                 st.write("---")
-                st.subheader("Triage Results")
-
+                st.subheader("Results")
+                
                 if "RED" in response.text:
                     st.error(response.text)
-                    st.warning("⚠️ Generating SBAR Report for Doctor...")
                 elif "YELLOW" in response.text:
                     st.warning(response.text)
-                    st.info("🤖 AI Follow-up: 'I noticed some swelling. Have you been icing it?'")
                 else:
                     st.success(response.text)
-
+                    
             except Exception as e:
-                st.error(f"Error connecting to AI: {e}")
+                st.error(f"Connection Error: {e}")
+                st.info("Tip: If this fails, your API Key might be invalid or needs to be refreshed in Google AI Studio.")
